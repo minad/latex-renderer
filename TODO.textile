@@ -1,2 +1,2 @@
+* better template and error handling
 * create gem
-* improve template and error handling

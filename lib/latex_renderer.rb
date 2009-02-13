@@ -3,17 +3,15 @@ require 'open4'
 require 'fileutils'
 class LatexRenderer
 
-  attr_accessor :filepath
+  attr_accessor :filepath, :hash
 
   def initialize(formula, options = {})
-
     @options = {
-      :image_dir         => File.join(RAILS_ROOT, '/public/images/latex/'),
-      :temp_dir          => File.join(RAILS_ROOT, '/tmp/'),
+      :image_dir         => '/tmp/',
+      :temp_dir          => '/tmp/',
       :density           => 200,
       :text_color        => 'black',
       :background_color  => 'white',
-      :latex_class       => 'article',
       :image_format      => 'png',
     }
 
@@ -27,25 +25,24 @@ class LatexRenderer
       \\expandafter \\noexpand \\special
     }
 
-    @formula = formula
+    @formula = formula.empty? ? '\\pi \\approx e' : formula
     raise "Dirty object" unless self.is_clean?
-
-    @tex_file, @dvi_file, @ps_file, @img_file, @filepath = nil
 
   end
 
+  #TODO better Template
   def template
     [
-      "\\documentclass{#{@options[:latex_class]}}",
+      "\\documentclass{article}",
       '\usepackage[latin1]{inputenc}',
       '\usepackage{amsmath}',
       '\usepackage{amsfonts}',
       '\usepackage{amssymb}',
       '\pagestyle{empty}',
       '\begin{document}',
-      '\begin{center}',
+      '\begin{gather*}',
       @formula,
-      '\end{center}',
+      '\end{gather*}',
       '\end{document}',
     ].join("\n")
   end
@@ -53,6 +50,7 @@ class LatexRenderer
   def render
     md5hash = Digest::MD5.hexdigest(@formula).to_s
     filename = md5hash + '.' + @options[:image_format]
+    @hash = md5hash
     @filepath = File.join(@options[:image_dir], filename)
     unless File.exists? @filepath
       begin
@@ -82,13 +80,11 @@ class LatexRenderer
   end
 
   def create_temp_files(md5hash)
-    @tempdir   = @options[:temp_dir]
-    @latex_log = File.join(@tempdir, md5hash + '.log')
-    @tex_file  = File.join(@tempdir, md5hash + '.tex')
-    @dvi_file  = File.join(@tempdir, md5hash + '.dvi')
-    @img_file  = File.join(@tempdir, md5hash + '.png')
-    @ps_file   = File.join(@tempdir, md5hash + '.ps')
-    @aux       = File.join(@tempdir, md5hash + '.aux')
+    @tempdir   = File.join(@options[:temp_dir], md5hash)
+    Dir.mkdir(@tempdir) if not File.exists?(@tempdir)
+    @tex_file, @dvi_file, @ps_file, @img_file = ['.tex','.dvi','.ps','.png'].collect do |e|
+      File.join(@tempdir, 'tmp' + e)
+    end
   end
 
   def latex_to_dvi
@@ -126,8 +122,6 @@ class LatexRenderer
   end
 
   def destroy
-    [@tex_file, @dvi_file, @img_file, @ps_file, @latex_log, @aux ].each do |tmp|
-      File.delete(tmp) if File.exists?(tmp)
-    end
+    FileUtils::remove_dir @tempdir
   end
 end
