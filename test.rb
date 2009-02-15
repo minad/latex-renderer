@@ -1,6 +1,6 @@
 require 'lib/latex_renderer'
 
-latex = LatexRenderer.new
+latex = Latex::Renderer.new
 
 begin
   latex.render('1+1')

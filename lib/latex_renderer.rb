@@ -1,112 +1,154 @@
 require 'digest'
 require 'open4'
 require 'fileutils'
+require 'thread'
 
-class LatexRenderer
+module Latex
+  class Renderer
+    def initialize(options = {})
+      @options = {
+        :image_dir         => '/tmp/latex-images',
+        :temp_dir          => '/tmp/latex-images',
+        :convert           => '-trim -density 120',
+        :image_format      => 'png',
+      }
+      @options[:blacklist] = %w{
+        include def command loop repeat open toks output input
+        catcode name \\every \\errhelp \\errorstopmode \\scrollmode
+        \\nonstopmode \\batchmode \\read \\write csname \\newhelp
+        \\uppercase \\lowercase \\relax \\aftergroup \\afterassignment
+        \\expandafter \\noexpand \\special $$
+      }
+      @options.update(options)
+      
+      FileUtils.mkdir_p(@options[:temp_dir], :mode => 0755)
+      FileUtils.mkdir_p(@options[:image_dir], :mode => 0755)
+    end
 
-  def initialize(options = {})
-    @options = {
-      :image_dir         => '/tmp/latex-images',
-      :temp_dir          => '/tmp',
-      :convert           => '-trim -density 100',
-      :text_color        => 'black',
-      :background_color  => 'white',
-      :image_format      => 'png',
-    }
-    @options[:blacklist_commands] = %w{
-      include def command loop repeat open toks output input
-      catcode name \\every \\errhelp \\errorstopmode \\scrollmode
-      \\nonstopmode \\batchmode \\read \\write csname \\newhelp
-      \\uppercase \\lowercase \\relax \\aftergroup \\afterassignment
-      \\expandafter \\noexpand \\special
-    }
-    @options.update(options)
-    
-    FileUtils.mkdir_p(@options[:temp_dir], :mode => 0755)
-    FileUtils.mkdir_p(@options[:image_dir], :mode => 0755)
-  end
+    def set(key, value)
+      @option[key] = value
+    end
 
-  def set(key, value)
-    @option[key] = value
-  end
+    def render(formula)
+      formula = process_formula(formula)
+      hash = Digest::SHA1.hexdigest(formula)
 
-  def render(formula)
-    dup.process(formula)
-  end
+      file_name = hash + '.' + @options[:image_format]
+      file_path = File.join(@options[:image_dir], file_name)
+      if !File.exists?(file_path)
+        generate(formula, hash)
+      end
 
-  protected
+      [file_name, file_path, hash]
+    end
 
-  def process(formula)
-    @formula = formula
-    check_formula
+    protected
 
-    @hash = Digest::SHA1.hexdigest(@formula)
-    filename = @hash + '.' + @options[:image_format]
-    filepath = File.join(@options[:image_dir], filename)
-    if !File.exists?(filepath)
+    def generate(formula, hash)
       begin
-        create_temp_files
-        latex_to_dvi
-        dvi_to_ps
-        ps_to_image
-        FileUtils.mv @image_file, filepath
+        temp_dir = create_temp_dir(hash)
+        latex2dvi(temp_dir, formula)
+        dvi2ps(temp_dir)
+        ps2image(temp_dir, hash)
       ensure
-        FileUtils.rm_rf(@temp_dir)
+        FileUtils.rm_rf(temp_dir)
       end
     end
 
-    [filepath, @hash]
-  end
+    def process_formula(formula)
+      errors = @options[:blacklist].map do |cmd|
+        formula.include?(cmd) ? cmd : nil
+      end.compact
+      errors.empty? || raise(ArgumentError.new(errors))
 
-  def template
-<<END
+      formula.strip
+    end
+
+    def template(formula)
+      <<END
 \\documentclass{minimal}
 \\usepackage[utf8]{inputenc}
-\\usepackage{amsmath}
-\\usepackage{amsfonts}
+\\usepackage{amsmath,amsfonts,amssymb}
+\\usepackage{mathrsfs,esdiff,cancel}
+\\usepackage[dvips,usenames]{color}
+\\usepackage{nicefrac}
+\\usepackage[fraction=nice]{siunitx}
+\\usepackage{mathpazo}
 \\begin{document}
-\\begin{gather*}
-#{@formula}
-\\end{gather*}
+$$
+#{formula}
+$$
 \\end{document}
 END
-  end
+    end
 
-  def create_temp_files
-    @temp_dir = File.join(@options[:temp_dir], "#{@hash}-#{Thread.current.object_id.to_s(16)}")
-    FileUtils.mkdir_p(@temp_dir)
-    @tex_file, @dvi_file, @ps_file, @image_file = ['tex', 'dvi', 'ps', @options[:image_format]].map do |e|
-      File.join(@temp_dir, 'formula.' + e)
+    def create_temp_dir(hash)
+      temp_dir = File.join(@options[:temp_dir], "#{hash}-#{Thread.current.object_id.to_s(16)}")
+      FileUtils.mkdir_p(temp_dir)
+      temp_dir
+    end
+    
+    def sh(cmd, args)
+      status = Open4.popen4("#{cmd} #{args}") do |pid, stdin, stdout, stderr|
+        stdin.close
+        stderr.read
+        stdout.read
+      end
+      raise RuntimeError.new("Execution of #{cmd} failed with status #{status.exitstatus}") if status.exitstatus != 0
+    end
+
+    def latex2dvi(dir, formula)
+      tex_file = File.join(dir, 'formula.tex')
+      File.open(tex_file, 'w') {|f| f.write(template(formula)) }
+      sh('latex', "--interaction=nonstopmode --output-directory=#{dir} #{tex_file}")
+    end
+
+    def dvi2ps(dir)
+      file = File.join(dir, 'formula')
+      sh('dvips', "-E #{file}.dvi -o #{file}.ps")
+    end
+
+    def ps2image(dir, hash)
+      ps_file = File.join(dir, 'formula.ps')
+      image_file = File.join(@options[:image_dir], "#{hash}.#{@options[:image_format]}")
+      sh('convert', "#{@options[:convert]} #{ps_file} #{image_file}")
     end
   end
 
-  def execute(command)
-    errors = ''
-    status = Open4.popen4(command) do |pid, stdin, stdout, stderr|
-      stdin.close
-      errors = stdout.read + stderr.read
+  class AsyncRenderer < Renderer
+    def initialize(options = {})
+      super(options)
+      @mutex = Mutex.new
+      @threads = {} 
     end
-    raise RuntimeError.new("Execution failed with status #{status.exitstatus}:\n#{errors}") if status.exitstatus != 0
+
+    def result(hash)
+      thread = @mutex.synchronize do
+        @threads[hash]
+      end
+      thread.join if thread
+      file_name = hash + '.' + @options[:image_format]
+      file_path = File.join(@options[:image_dir], file_name)
+      raise RuntimeError.new('LaTeX could not be generated') if !File.exists?(file_path)
+      [file_name, file_path, hash]
+    end
+
+    protected
+
+    def generate(formula, hash)
+      @mutex.synchronize do
+        if !@threads.key?(hash)
+          threads = @threads
+          mutex = @mutex
+          threads[hash] = Thread.new do
+            result = super(formula, hash)
+            mutex.synchronize { threads.delete(hash) }
+            result
+          end
+        end
+      end
+    end
   end
 
-  def latex_to_dvi
-    File.open(@tex_file, 'w') {|f| f.write template }
-    execute("latex --interaction=nonstopmode --output-directory=#{@temp_dir} #{@tex_file}")
-  end
-
-  def dvi_to_ps
-    execute("dvips -E #{@dvi_file} -o #{@ps_file}")
-  end
-
-  def ps_to_image
-    execute("convert #{@options[:convert]} #{@ps_file} #{@image_file}")
-  end
-
-  def check_formula
-    errors = @options[:blacklist_commands].map do |cmd|
-      @formula.include?(cmd) ? cmd : nil
-    end.compact
-    errors.empty? || raise(ArgumentError.new(errors))
-  end
 end
 
