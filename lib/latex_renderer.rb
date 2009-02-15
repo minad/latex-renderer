@@ -11,6 +11,7 @@ module Latex
         :temp_dir          => '/tmp/latex-images',
         :convert           => '-trim -density 120',
         :image_format      => 'png',
+        :debug             => false
       }
       @options[:blacklist] = %w{
         include def command loop repeat open toks output input
@@ -50,7 +51,9 @@ module Latex
         latex2dvi(temp_dir, formula)
         dvi2ps(temp_dir)
         ps2image(temp_dir, hash)
-      ensure
+      rescue
+        FileUtils.rm_rf(temp_dir) if !@options[:debug]
+      else
         FileUtils.rm_rf(temp_dir)
       end
     end
@@ -83,7 +86,7 @@ END
     end
 
     def create_temp_dir(hash)
-      temp_dir = File.join(@options[:temp_dir], "#{hash}-#{Thread.current.object_id.to_s(16)}")
+      temp_dir = File.join(@options[:temp_dir], hash)
       FileUtils.mkdir_p(temp_dir)
       temp_dir
     end
