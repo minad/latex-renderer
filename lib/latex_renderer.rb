@@ -1,22 +1,18 @@
-require 'digest/md5'
+require 'digest'
 require 'open4'
 require 'fileutils'
+
 class LatexRenderer
 
-  attr_accessor :filepath, :hash
-
-  def initialize(formula, options = {})
+  def initialize(options = {})
     @options = {
       :image_dir         => '/tmp/',
       :temp_dir          => '/tmp/',
-      :density           => 200,
+      :convert           => '-trim -density 100',
       :text_color        => 'black',
       :background_color  => 'white',
       :image_format      => 'png',
     }
-
-    #@options.assert_valid_keys = @options.keys
-    @options.update(options)
     @options[:blacklist_commands] = %w{
       include def command loop repeat open toks output input
       catcode name \\every \\errhelp \\errorstopmode \\scrollmode
@@ -24,104 +20,95 @@ class LatexRenderer
       \\uppercase \\lowercase \\relax \\aftergroup \\afterassignment
       \\expandafter \\noexpand \\special
     }
-
-    @formula = formula.empty? ? '\\pi \\approx e' : formula
-    raise "Dirty object" unless self.is_clean?
-
+    @options.update(options)
   end
 
-  #TODO better Template
-  def template
-    [
-      "\\documentclass{article}",
-      '\usepackage[latin1]{inputenc}',
-      '\usepackage{amsmath}',
-      '\usepackage{amsfonts}',
-      '\usepackage{amssymb}',
-      '\pagestyle{empty}',
-      '\begin{document}',
-      '\begin{gather*}',
-      @formula,
-      '\end{gather*}',
-      '\end{document}',
-    ].join("\n")
+  def set(key, value)
+    @option[key] = value
   end
 
-  def render
-    md5hash = Digest::MD5.hexdigest(@formula).to_s
-    filename = md5hash + '.' + @options[:image_format]
-    @hash = md5hash
-    @filepath = File.join(@options[:image_dir], filename)
-    unless File.exists? @filepath
+  def render(formula)
+    dup.process(formula)
+  end
+
+  protected
+
+  def process(formula)
+    @formula = formula
+    check_formula
+
+    @hash = Digest::SHA1.hexdigest(@formula)
+    filename = @hash + '.' + @options[:image_format]
+    filepath = File.join(@options[:image_dir], filename)
+    if !File.exists?(filepath)
       begin
-        self.create_temp_files(md5hash)
-        self.latex_to_dvi
-        self.dvi_to_ps
-        self.ps_to_image
-        FileUtils.copy @img_file, @filepath
+        create_temp_files
+        latex_to_dvi
+        dvi_to_ps
+        ps_to_image
+        FileUtils.mv @image_file, filepath
       ensure
-        self.destroy
+        cleanup
       end
     end
+
+    [filepath, @hash]
+  end
+
+  def template
+<<END
+\\documentclass{minimal}
+\\usepackage[utf8]{inputenc}
+\\usepackage{amsmath}
+\\usepackage{amsfonts}
+\\begin{document}
+\\begin{gather*}
+#{@formula}
+\\end{gather*}
+\\end{document}
+END
+  end
+
+  def create_temp_files
+    @tempdir = File.join(@options[:temp_dir], "#{@hash}-#{Thread.current.object_id.to_s(16)}")
+    FileUtils.mkdir_p(@tempdir)
+    @tex_file, @dvi_file, @ps_file, @image_file = ['tex', 'dvi', 'ps', @options[:image_format]].map do |e|
+      File.join(@tempdir, 'tmp.' + e)
+    end
+  end
+
+  def cleanup
+    FileUtils.rm_rf(@tempdir)
   end
 
   def execute(command)
-    pid, stdin, stdout, stderr = Open4::popen4 command
-    ignored, status = Process::waitpid2 pid
-    err = stderr.readlines.join("\n")
-    output = stdout.readlines.join("\n")
-    [stdin,stdout,stderr].each{|pipe| pipe.close}
-
-    if status.exitstatus == 1
-      message =" failed.\n #{command} caused the following error(s)\nErr: #{err} .Done"
-      raise message
+    puts command
+    errors = ''
+    status = Open4.popen4(command) do |pid, stdin, stdout, stderr|
+      stdin.close
+      errors = stdout.read + stderr.read
     end
-    return output
-  end
-
-  def create_temp_files(md5hash)
-    @tempdir   = File.join(@options[:temp_dir], md5hash)
-    Dir.mkdir(@tempdir) if not File.exists?(@tempdir)
-    @tex_file, @dvi_file, @ps_file, @img_file = ['.tex','.dvi','.ps','.png'].collect do |e|
-      File.join(@tempdir, 'tmp' + e)
-    end
+    raise RuntimeError.new("Execution failed with status #{status.exitstatus}:\n#{errors}") if status.exitstatus != 0
   end
 
   def latex_to_dvi
-    latex = %x[which latex].strip
-
-    # temp Latex file
-    File.open(@tex_file,'w') do |file|
-      file.write self.template
-    end
-    command  = [ latex,  '--interaction=nonstopmode', "--output-directory=#{@tempdir}", @tex_file  ]
-    self.execute command.join(' ')
+    File.open(@tex_file, 'w') {|f| f.write template }
+    execute("latex --interaction=nonstopmode --output-directory=#{@tempdir} #{@tex_file}")
   end
 
   def dvi_to_ps
-    dvips = %x[which dvips].strip # dpi to postscript
-    command = [ dvips, "-E #{@dvi_file}", "-o #{@ps_file}" ]
-    self.execute command.join(' ')
+    execute("dvips -E #{@dvi_file} -o #{@ps_file}")
   end
 
   def ps_to_image
-    convert  = %x[which convert].strip #  convert postscript to imagea
-    command  = sprintf '%s \( \( \( -density %s %s -trim \) \( +clone -negate \)' +
-                        ' -compose CopyOpacity \) -composite \) -channel RGB -fx "%s" %s',
-                        convert, @options[:density].to_s, @ps_file,
-                        @options[:text_color], @img_file
-    self.execute command
+    execute("convert #{@options[:convert]} #{@ps_file} #{@image_file}")
   end
 
-  def is_clean?
-    errors = Array.new
-    @options[:blacklist_commands].each do |cmd|
-      errors.push cmd if @formula.include? cmd
-    end
-    errors.size
-  end
-
-  def destroy
-    FileUtils::remove_dir @tempdir
+  def check_formula
+    errors = @options[:blacklist_commands].map do |cmd|
+      @formula.include?(cmd) ? cmd : nil
+    end.compact
+    errors.empty? || raise(ArgumentError.new(errors))
   end
 end
+
