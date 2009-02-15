@@ -21,6 +21,9 @@ class LatexRenderer
       \\expandafter \\noexpand \\special
     }
     @options.update(options)
+    
+    FileUtils.mkdir_p(@options[:temp_dir], :mode => 0755)
+    FileUtils.mkdir_p(@options[:image_dir], :mode => 0755)
   end
 
   def set(key, value)
@@ -48,7 +51,7 @@ class LatexRenderer
         ps_to_image
         FileUtils.mv @image_file, filepath
       ensure
-        cleanup
+        FileUtils.rm_rf(@temp_dir)
       end
     end
 
@@ -70,19 +73,14 @@ END
   end
 
   def create_temp_files
-    @tempdir = File.join(@options[:temp_dir], "#{@hash}-#{Thread.current.object_id.to_s(16)}")
-    FileUtils.mkdir_p(@tempdir)
+    @temp_dir = File.join(@options[:temp_dir], "#{@hash}-#{Thread.current.object_id.to_s(16)}")
+    FileUtils.mkdir_p(@temp_dir)
     @tex_file, @dvi_file, @ps_file, @image_file = ['tex', 'dvi', 'ps', @options[:image_format]].map do |e|
-      File.join(@tempdir, 'tmp.' + e)
+      File.join(@temp_dir, 'formula.' + e)
     end
   end
 
-  def cleanup
-    FileUtils.rm_rf(@tempdir)
-  end
-
   def execute(command)
-    puts command
     errors = ''
     status = Open4.popen4(command) do |pid, stdin, stdout, stderr|
       stdin.close
@@ -93,7 +91,7 @@ END
 
   def latex_to_dvi
     File.open(@tex_file, 'w') {|f| f.write template }
-    execute("latex --interaction=nonstopmode --output-directory=#{@tempdir} #{@tex_file}")
+    execute("latex --interaction=nonstopmode --output-directory=#{@temp_dir} #{@tex_file}")
   end
 
   def dvi_to_ps
