@@ -6,8 +6,8 @@ class LatexRenderer
 
   def initialize(options = {})
     @options = {
-      :image_dir         => '/tmp/',
-      :temp_dir          => '/tmp/',
+      :image_dir         => '/tmp/latex-images',
+      :temp_dir          => '/tmp',
       :convert           => '-trim -density 100',
       :text_color        => 'black',
       :background_color  => 'white',
