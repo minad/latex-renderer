@@ -32,7 +32,7 @@ module Latex
 
     def render(formula)
       formula = process_formula(formula)
-      hash = Digest::SHA1.hexdigest(formula)
+      hash = Digest::MD5.hexdigest(formula)
 
       file_name = hash + '.' + @options[:image_format]
       file_path = File.join(@options[:image_dir], file_name)
