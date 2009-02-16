@@ -1,2 +1,0 @@
-* better template and error handling
-* create gem

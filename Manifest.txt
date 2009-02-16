@@ -1,0 +1,5 @@
+Manifest.txt
+lib/latex-renderer.rb
+README.txt
+Rakefile
+test/benchmark.rb

@@ -4,6 +4,8 @@ require 'fileutils'
 require 'thread'
 
 module Latex
+  VERSION = '0.2'
+
   class Renderer
     def initialize(options = {})
       @options = {
