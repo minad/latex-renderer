@@ -121,35 +121,57 @@ END
   class AsyncRenderer < Renderer
     def initialize(options = {})
       super(options)
+      @queue = Queue.new
       @mutex = Mutex.new
-      @threads = {} 
+      @jobs  = [] 
+      @worker = nil
     end
 
     def result(hash)
-      thread = @mutex.synchronize do
-        @threads[hash]
-      end
-      thread.join if thread
       file_name = hash + '.' + @options[:image_format]
       file_path = File.join(@options[:image_dir], file_name)
+      return [file_name, file_path, hash] if File.exists?(file_path)
+
+      # Uhhh polling
+      while @mutex.synchronize { @jobs.include?(hash) } do
+        sleep 0.1
+      end
+
       raise RuntimeError.new('LaTeX could not be generated') if !File.exists?(file_path)
       [file_name, file_path, hash]
     end
 
     protected
 
-    def generate(formula, hash)
-      @mutex.synchronize do
-        if !@threads.key?(hash)
-          threads = @threads
-          mutex = @mutex
-          threads[hash] = Thread.new do
-            result = super(formula, hash)
-            mutex.synchronize { threads.delete(hash) }
-            result
+    def worker
+      loop do
+        formula, hash = @queue.pop
+
+        begin
+          sync_generate(formula, hash)
+        rescue
+        end
+
+        @mutex.synchronize do
+          @jobs.delete(hash)
+          if @queue.empty?
+            @worker = nil
+            @mutex.unlock
+            return
           end
         end
+
       end
+    end
+
+    alias sync_generate generate
+
+    def generate(formula, hash)
+      @mutex.synchronize {
+        @queue << [formula, hash]
+        @jobs << hash
+        @worker = Thread.new { worker } if !@worker
+      }
     end
   end
 
