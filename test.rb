@@ -1,4 +1,4 @@
-require 'lib/latex_renderer'
+require 'lib/latex-renderer'
 require 'benchmark'
 
 hashes = []
