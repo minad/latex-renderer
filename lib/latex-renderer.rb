@@ -1,4 +1,5 @@
 require 'digest'
+require 'rubygems'
 require 'open4'
 require 'fileutils'
 require 'thread'
@@ -25,7 +26,7 @@ module Latex
         \\expandafter \\noexpand \\special $$
       }
       @options.update(options)
-      
+
       FileUtils.mkdir_p(@options[:temp_dir], :mode => 0755)
       FileUtils.mkdir_p(@options[:image_dir], :mode => 0755)
     end
@@ -48,19 +49,18 @@ module Latex
     end
 
     protected
-
-    def generate(formula, hash)
-      begin
-        temp_dir = create_temp_dir(hash)
-        latex2dvi(temp_dir, formula)
-        dvi2ps(temp_dir)
-        ps2image(temp_dir, hash)
-      rescue
-        FileUtils.rm_rf(temp_dir) if !@options[:debug]
-      else
-        FileUtils.rm_rf(temp_dir)
+      def generate(formula, hash)
+        begin
+          temp_dir = create_temp_dir(hash)
+          latex2dvi(temp_dir, formula)
+          dvi2ps(temp_dir)
+          ps2image(temp_dir, hash)
+        rescue
+          FileUtils.rm_rf(temp_dir) if !@options[:debug]
+        else
+          FileUtils.rm_rf(temp_dir)
+        end
       end
-    end
 
     def process_formula(formula)
       errors = @options[:blacklist].map do |cmd|
@@ -99,7 +99,7 @@ END
       FileUtils.mkdir_p(temp_dir)
       temp_dir
     end
-    
+
     def sh(cmd, args)
       status = Open4.popen4("#{cmd} #{args}") do |pid, stdin, stdout, stderr|
         stdin.close
@@ -125,33 +125,32 @@ END
       image_file = File.join(@options[:image_dir], "#{hash}.#{@options[:image_format]}")
       sh('convert', "#{@options[:convert]} #{ps_file} #{image_file}")
     end
+end
+
+class AsyncRenderer < Renderer
+  def initialize(options = {})
+    super(options)
+    @options[:service] ||= 'drbunix:///tmp/latex-renderer.sock'
   end
 
-  class AsyncRenderer < Renderer
-    def initialize(options = {})
-      super(options)
-      @options[:service] ||= 'drbunix:///tmp/latex-renderer.sock'
+  def result(hash)
+    file_name = hash + '.' + @options[:image_format]
+    file_path = File.join(@options[:image_dir], file_name)
+    return [file_name, file_path, hash] if File.exists?(file_path)
+
+    # Uhhh polling
+    while worker.enqueued?(hash) do
+      sleep 0.1
     end
 
-    def result(hash)
-      file_name = hash + '.' + @options[:image_format]
-      file_path = File.join(@options[:image_dir], file_name)
-      return [file_name, file_path, hash] if File.exists?(file_path)
+    raise RuntimeError.new('LaTeX could not be generated') if !File.exists?(file_path)
+    [file_name, file_path, hash]
+  end
 
-      # Uhhh polling
-      while worker.enqueued?(hash) do
-        sleep 0.1
-      end
-
-      raise RuntimeError.new('LaTeX could not be generated') if !File.exists?(file_path)
-      [file_name, file_path, hash]
-    end
-
-    protected
-
+  protected
     def worker
       begin
-        worker = DRb::DRbObject.new(nil, @options[:service]) 
+        worker = DRb::DRbObject.new(nil, @options[:service])
         worker.respond_to? :enqueue
         worker
       rescue
@@ -218,7 +217,5 @@ END
         end
       end
     end
-
   end
-
 end
