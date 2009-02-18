@@ -1,5 +1,6 @@
 require 'rubygems'
 require 'benchmark'
+require 'lib/latex-renderer'
 
 hashes = []
 sync_latex = Latex::Renderer.new

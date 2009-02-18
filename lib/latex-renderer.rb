@@ -1,6 +1,5 @@
 require 'digest'
 require 'rubygems'
-require 'open4'
 require 'fileutils'
 require 'thread'
 require 'monitor'
@@ -102,12 +101,8 @@ END
       end
 
       def sh(cmd, args)
-        status = Open4.popen4("#{cmd} #{args}") do |pid, stdin, stdout, stderr|
-          stdin.close
-          stderr.read
-          stdout.read
-        end
-        raise RuntimeError.new("Execution of #{cmd} failed with status #{status.exitstatus}") if status.exitstatus != 0
+        `#{cmd} #{args} 2>&1 > /dev/null`
+	raise RuntimeError.new("Execution of #{cmd} failed with status #{$?}") if $? != 0
       end
 
       def latex2dvi(dir, formula)
