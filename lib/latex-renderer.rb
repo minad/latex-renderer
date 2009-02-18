@@ -2,9 +2,11 @@ require 'digest'
 require 'open4'
 require 'fileutils'
 require 'thread'
+require 'monitor'
+require 'drb'
 
 module Latex
-  VERSION = '0.2'
+  VERSION = '0.3'
 
   class Renderer
     def initialize(options = {})
@@ -72,13 +74,18 @@ module Latex
     def template(formula)
       <<END
 \\documentclass{minimal}
-\\usepackage[utf8]{inputenc}
-\\usepackage{amsmath,amsfonts,amssymb}
-\\usepackage{mathrsfs,esdiff,cancel}
-\\usepackage[dvips,usenames]{color}
-\\usepackage{nicefrac}
-\\usepackage[fraction=nice]{siunitx}
-\\usepackage{mathpazo}
+\\newcommand\\use[2][]{\\IfFileExists{#2.sty}{\\usepackage[#1]{#2}}{}}
+\\use[utf8]{inputenc}
+\\use{amsmath}
+\\use{amsfonts}
+\\use{amssymb}
+\\use{mathrsfs}
+\\use{esdiff}
+\\use{cancel}
+\\use[dvips,usenames]{color}
+\\use{nicefrac}
+\\use[fraction=nice]{siunitx}
+\\use{mathpazo}
 \\begin{document}
 $$
 #{formula}
@@ -123,10 +130,7 @@ END
   class AsyncRenderer < Renderer
     def initialize(options = {})
       super(options)
-      @queue = Queue.new
-      @mutex = Mutex.new
-      @jobs  = [] 
-      @worker = nil
+      @options[:service] ||= 'drbunix:///tmp/latex-renderer.sock'
     end
 
     def result(hash)
@@ -135,7 +139,7 @@ END
       return [file_name, file_path, hash] if File.exists?(file_path)
 
       # Uhhh polling
-      while @mutex.synchronize { @jobs.include?(hash) } do
+      while worker.enqueued?(hash) do
         sleep 0.1
       end
 
@@ -146,36 +150,75 @@ END
     protected
 
     def worker
-      loop do
-        formula, hash = @queue.pop
-
-        begin
-          sync_generate(formula, hash)
-        rescue
-        end
-
-        @mutex.synchronize do
-          @jobs.delete(hash)
-          if @queue.empty?
-            @worker = nil
-            @mutex.unlock
-            return
-          end
-        end
-
+      begin
+        worker = DRb::DRbObject.new(nil, @options[:service]) 
+        worker.respond_to? :enqueue
+        worker
+      rescue
+        Worker.new(@options[:service], @@generate.bind(self))
+        DRb::DRbObject.new(nil, @options[:service])
       end
     end
 
-    alias sync_generate generate
+    @@generate = instance_method(:generate)
 
     def generate(formula, hash)
-      @mutex.synchronize {
-        @queue << [formula, hash]
-        @jobs << hash
-        @worker = Thread.new { worker } if !@worker
-      }
+      worker.enqueue(formula, hash)
     end
+
+    class Worker
+      def initialize(service, proc)
+        @queue = []
+        @queue.extend(MonitorMixin)
+        @empty = @queue.new_cond
+        @proc = proc
+        Thread.new do
+          @server = DRb.start_service(service, self)
+          run
+        end
+      end
+
+      def enqueue(formula, hash)
+        @queue.synchronize do
+          @queue << [formula, hash]
+          @empty.signal
+        end
+      end
+
+      def enqueued?(hash)
+        @queue.synchronize do
+          @queue.any? {|x| x[1] == hash }
+        end
+      end
+
+      private
+
+      def wait_while_empty
+        while @queue.empty?
+          if !@empty.wait(5)
+            @server.stop_service
+            DRb.primary_server = nil if DRb.primary_server == @server
+            @server = nil
+            return false
+          end
+        end
+        true
+      end
+
+      def run
+        loop do
+          formula, hash = @queue.synchronize do
+            return if !wait_while_empty
+            @queue.first
+          end
+          @proc[formula, hash] rescue nil
+          @queue.synchronize do
+            @queue.shift
+          end
+        end
+      end
+    end
+
   end
 
 end
-

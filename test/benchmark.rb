@@ -23,5 +23,3 @@ Benchmark.bm do |x|
     end
   end
 end
-
-
