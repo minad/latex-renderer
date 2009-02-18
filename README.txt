@@ -23,3 +23,8 @@ Asynchronous rendering:
  * convert:   Options for imagemagick convert
  * image_format: Target format
  * debug: Debugging mode. Do not delete temporary files if an error occured
+
+== TODO
+
+ * write specs (There are no tests in test dir!)
+ * don't use open4 library
