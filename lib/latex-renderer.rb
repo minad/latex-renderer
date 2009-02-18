@@ -159,8 +159,13 @@ class AsyncRenderer < Renderer
 
     def generate(formula, hash)
       5.times do
-        worker.enqueue(formula, hash) rescue next
-        return
+        begin
+	  worker.enqueue(formula, hash)
+          return
+	rescue
+	  sleep 0.5
+	  next
+	end
       end
     end
 
