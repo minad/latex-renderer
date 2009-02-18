@@ -48,7 +48,7 @@ module Latex
       [file_name, file_path, hash]
     end
 
-    protected
+    private
       def generate(formula, hash)
         begin
           temp_dir = create_temp_dir(hash)
