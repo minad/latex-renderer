@@ -63,9 +63,9 @@ module Latex
       end
 
       def process_formula(formula)
-        errors = @options[:blacklist].map do |cmd|
-          formula.include?(cmd) ? cmd : nil
-        end.compact
+        errors = @options[:blacklist].select do |cmd|
+          formula.include?(cmd)
+        end
         errors.empty? || raise(ArgumentError.new(errors))
 
         formula.strip
