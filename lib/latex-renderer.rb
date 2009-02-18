@@ -158,7 +158,10 @@ class AsyncRenderer < Renderer
     @@generate = instance_method(:generate)
 
     def generate(formula, hash)
-      worker.enqueue(formula, hash)
+      5.times do
+        worker.enqueue(formula, hash) rescue next
+        return
+      end
     end
 
     class Worker
