@@ -27,4 +27,3 @@ Asynchronous rendering:
 == TODO
 
  * write specs (There are no tests in test dir!)
- * don't use open4 library
