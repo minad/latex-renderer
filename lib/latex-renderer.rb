@@ -62,17 +62,17 @@ module Latex
         end
       end
 
-    def process_formula(formula)
-      errors = @options[:blacklist].map do |cmd|
-        formula.include?(cmd) ? cmd : nil
-      end.compact
-      errors.empty? || raise(ArgumentError.new(errors))
+      def process_formula(formula)
+        errors = @options[:blacklist].map do |cmd|
+          formula.include?(cmd) ? cmd : nil
+        end.compact
+        errors.empty? || raise(ArgumentError.new(errors))
 
-      formula.strip
-    end
+        formula.strip
+      end
 
-    def template(formula)
-      <<END
+      def template(formula)
+        <<END # {{{
 \\documentclass{minimal}
 \\newcommand\\use[2][]{\\IfFileExists{#2.sty}{\\usepackage[#1]{#2}}{}}
 \\use[utf8]{inputenc}
@@ -92,39 +92,40 @@ $$
 $$
 \\end{document}
 END
-    end
-
-    def create_temp_dir(hash)
-      temp_dir = File.join(@options[:temp_dir], hash)
-      FileUtils.mkdir_p(temp_dir)
-      temp_dir
-    end
-
-    def sh(cmd, args)
-      status = Open4.popen4("#{cmd} #{args}") do |pid, stdin, stdout, stderr|
-        stdin.close
-        stderr.read
-        stdout.read
+        # }}}
       end
-      raise RuntimeError.new("Execution of #{cmd} failed with status #{status.exitstatus}") if status.exitstatus != 0
-    end
 
-    def latex2dvi(dir, formula)
-      tex_file = File.join(dir, 'formula.tex')
-      File.open(tex_file, 'w') {|f| f.write(template(formula)) }
-      sh('latex', "--interaction=nonstopmode --output-directory=#{dir} #{tex_file}")
-    end
+      def create_temp_dir(hash)
+        temp_dir = File.join(@options[:temp_dir], hash)
+        FileUtils.mkdir_p(temp_dir)
+        temp_dir
+      end
 
-    def dvi2ps(dir)
-      file = File.join(dir, 'formula')
-      sh('dvips', "-E #{file}.dvi -o #{file}.ps")
-    end
+      def sh(cmd, args)
+        status = Open4.popen4("#{cmd} #{args}") do |pid, stdin, stdout, stderr|
+          stdin.close
+          stderr.read
+          stdout.read
+        end
+        raise RuntimeError.new("Execution of #{cmd} failed with status #{status.exitstatus}") if status.exitstatus != 0
+      end
 
-    def ps2image(dir, hash)
-      ps_file = File.join(dir, 'formula.ps')
-      image_file = File.join(@options[:image_dir], "#{hash}.#{@options[:image_format]}")
-      sh('convert', "#{@options[:convert]} #{ps_file} #{image_file}")
-    end
+      def latex2dvi(dir, formula)
+        tex_file = File.join(dir, 'formula.tex')
+        File.open(tex_file, 'w') {|f| f.write(template(formula)) }
+        sh('latex', "--interaction=nonstopmode --output-directory=#{dir} #{tex_file}")
+      end
+
+      def dvi2ps(dir)
+        file = File.join(dir, 'formula')
+        sh('dvips', "-E #{file}.dvi -o #{file}.ps")
+      end
+
+      def ps2image(dir, hash)
+        ps_file = File.join(dir, 'formula.ps')
+        image_file = File.join(@options[:image_dir], "#{hash}.#{@options[:image_format]}")
+        sh('convert', "#{@options[:convert]} #{ps_file} #{image_file}")
+      end
 end
 
 class AsyncRenderer < Renderer
@@ -192,30 +193,31 @@ class AsyncRenderer < Renderer
 
       private
 
-      def wait_while_empty
-        while @queue.empty?
-          if !@empty.wait(5)
-            @server.stop_service
-            DRb.primary_server = nil if DRb.primary_server == @server
-            @server = nil
-            return false
+        def wait_while_empty
+          while @queue.empty?
+            if !@empty.wait(5)
+              @server.stop_service
+              DRb.primary_server = nil if DRb.primary_server == @server
+              @server = nil
+              return false
+            end
           end
+          true
         end
-        true
-      end
 
-      def run
-        loop do
-          formula, hash = @queue.synchronize do
-            return if !wait_while_empty
-            @queue.first
-          end
-          @proc[formula, hash] rescue nil
-          @queue.synchronize do
-            @queue.shift
+        def run
+          loop do
+            formula, hash = @queue.synchronize do
+              return if !wait_while_empty
+              @queue.first
+            end
+            @proc[formula, hash] rescue nil
+            @queue.synchronize do
+              @queue.shift
+            end
           end
         end
-      end
     end
   end
 end
+# vim: foldmethod=marker
