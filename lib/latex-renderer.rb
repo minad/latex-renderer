@@ -6,7 +6,7 @@ require 'monitor'
 require 'drb'
 
 module LaTeX
-  VERSION = '0.3'
+  VERSION = '0.3.1'
 
   # Basic synchronous renderer class
   class Renderer
