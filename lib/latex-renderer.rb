@@ -65,8 +65,7 @@ module Latex
         errors = @options[:blacklist].select do |cmd|
           formula.include?(cmd)
         end
-        errors.empty? || raise(ArgumentError.new(errors))
-
+        errors.empty? || raise(ArgumentError.new("Invalid latex commands #{errors.join(', ')}"))
         formula.strip
       end
 
