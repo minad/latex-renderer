@@ -1,5 +1,6 @@
 Manifest.txt
 lib/latex-renderer.rb
-README.txt
+README.markdown
+LICENSE
 Rakefile
 test/benchmark.rb

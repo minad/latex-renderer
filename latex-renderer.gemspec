@@ -5,19 +5,19 @@ Gem::Specification.new do |s|
   s.version = "0.3"
 
   s.required_rubygems_version = Gem::Requirement.new(">= 0") if s.respond_to? :required_rubygems_version=
-  s.authors = ["Michael Petnuch", "Daniel Mendler"]
+  s.authors = ["Benjamin Zeiss", "Michael Petnuch", "Daniel Mendler"]
   s.date = %q{2009-02-16}
-  s.description = %q{}
-  s.email = ["michael@petnuch.com", "mail@daniel-mendler.de"]
-  s.extra_rdoc_files = ["Manifest.txt"]
-  s.files = ["Manifest.txt", "lib/latex-renderer.rb", "README.txt", "Rakefile", "test/benchmark.rb"]
+  s.summary = %q{Render math formula images with LaTeX}
+  s.description = %q{Render math formula images with LaTeX}
+  s.email = ["zeiss@math.uni-goettingen.de", "michael@petnuch.com", "mail@daniel-mendler.de"]
+  s.extra_rdoc_files = ["Manifest.txt", "LICENSE"]
+  s.files = ["Manifest.txt", "lib/latex-renderer.rb", "README.markdown", "LICENSE", "Rakefile", "test/benchmark.rb"]
   s.has_rdoc = true
   s.homepage = %q{Latex-renderer is a ruby library to generate images from latex code.}
-  s.rdoc_options = ["--main", "README.txt"]
+  s.rdoc_options = ["--main", "README.markdown"]
   s.require_paths = ["lib"]
   s.rubyforge_project = %q{latex-renderer}
   s.rubygems_version = %q{1.3.1}
-  s.summary = %q{}
 
   if s.respond_to? :specification_version then
     current_version = Gem::Specification::CURRENT_SPECIFICATION_VERSION

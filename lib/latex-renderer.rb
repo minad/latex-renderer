@@ -5,15 +5,18 @@ require 'thread'
 require 'monitor'
 require 'drb'
 
-module Latex
+module LaTeX
   VERSION = '0.3'
 
+  # Basic synchronous renderer class
   class Renderer
+
+    # Initialize renderer with option hash
     def initialize(options = {})
       @options = {
         :image_dir         => '/tmp/latex-images',
         :temp_dir          => '/tmp/latex-images',
-        :convert           => '-trim -density 120',
+        :convert_options   => '-trim -density 120',
         :image_format      => 'png',
         :debug             => false
       }
@@ -30,10 +33,13 @@ module Latex
       FileUtils.mkdir_p(@options[:image_dir], :mode => 0755)
     end
 
+    # Set rendering option
     def set(key, value)
       @option[key] = value
     end
 
+    # Render formula.
+    # Returns [file_name, file_path, hash]
     def render(formula)
       formula = process_formula(formula)
       hash = Digest::MD5.hexdigest(formula)
@@ -118,16 +124,18 @@ END
       def ps2image(dir, hash)
         ps_file = File.join(dir, 'formula.ps')
         image_file = File.join(@options[:image_dir], "#{hash}.#{@options[:image_format]}")
-        sh('convert', "#{@options[:convert]} #{ps_file} #{image_file}")
+        sh('convert', "#{@options[:convert_options]} #{ps_file} #{image_file}")
       end
 end
 
+# Asynchronous renderer that uses DRb to communicate with a background worker
 class AsyncRenderer < Renderer
   def initialize(options = {})
     super(options)
-    @options[:service] ||= 'drbunix:///tmp/latex-renderer.sock'
+    @options[:service_uri] ||= 'drbunix:///tmp/latex-renderer.sock'
   end
 
+  # Get rendering result by hash
   def result(hash)
     file_name = hash + '.' + @options[:image_format]
     file_path = File.join(@options[:image_dir], file_name)
@@ -145,12 +153,12 @@ class AsyncRenderer < Renderer
   protected
     def worker
       begin
-        worker = DRb::DRbObject.new(nil, @options[:service])
+        worker = DRb::DRbObject.new(nil, @options[:service_uri])
         worker.respond_to? :enqueue
         worker
       rescue
-        Worker.new(@options[:service], @@generate.bind(self))
-        DRb::DRbObject.new(nil, @options[:service])
+        Worker.new(@options[:service_uri], @@generate.bind(self))
+        DRb::DRbObject.new(nil, @options[:service_uri])
       end
     end
 
@@ -222,4 +230,5 @@ class AsyncRenderer < Renderer
     end
   end
 end
+Latex = LaTeX
 # vim: foldmethod=marker
